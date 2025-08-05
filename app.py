@@ -23,6 +23,15 @@ def try_read_csv(file):
 
 required_cols = ["year", "month", "date", "time", "買電電力量(kWh)", "売電電力量(kWh)", "発電電力量(kWh)", "消費電力量(kWh)"]
 
+# アップロードファイル確認用ログ
+for uploaded_file in uploaded_files:
+    st.write(f"ファイル名: {uploaded_file.name}")
+    try:
+        df = pd.read_excel(uploaded_file)
+        st.write("列名:", df.columns.tolist())  # 列名を表示
+    except Exception as e:
+        st.error(f"{uploaded_file.name} の読み込みに失敗しました: {e}")
+
 if uploaded_files:
     dfs = []
     for file in uploaded_files:

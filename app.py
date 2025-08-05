@@ -18,12 +18,11 @@ def try_read_csv(file):
         try:
             return pd.read_csv(file, encoding=enc)
         except Exception:
-            file.seek(0)  # 読み込み位置を先頭に戻す
+            file.seek(0)
     raise ValueError("読み込み可能なエンコーディングではありません")
 
 if uploaded_files:
     dfs = []
-
     for file in uploaded_files:
         file_name = file.name.lower()
 
@@ -44,29 +43,38 @@ if uploaded_files:
                 df["date"].astype(str) + " " + df["time"].astype(str),
                 errors="coerce"
             )
-            dfs.append(df.dropna(subset=["datetime"]))
+            df = df.dropna(subset=["datetime"])
+            dfs.append(df)
         except Exception as e:
             st.error(f"{file_name} の datetime 生成に失敗しました: {e}")
 
     if not dfs:
         st.warning("有効なデータが読み込めませんでした。")
     else:
-        merged_df = dfs[0][["datetime"] + list(dfs[0].columns)]
-        for df in dfs[1:]:
-            merged_df = pd.merge(
-                merged_df,
-                df[["datetime", "買電電力量(kWh)", "売電電力量(kWh)", "発電電力量(kWh)", "消費電力量(kWh)"]],
-                on="datetime",
-                how="outer",
-                suffixes=("", "_dup"),
-            )
-
         value_cols = ["買電電力量(kWh)", "売電電力量(kWh)", "発電電力量(kWh)", "消費電力量(kWh)"]
+
+        # 平均化用のマージ
+        merged_df = None
+        for df in dfs:
+            df_small = df[["datetime"] + value_cols].copy()
+            if merged_df is None:
+                merged_df = df_small
+            else:
+                merged_df = pd.merge(
+                    merged_df,
+                    df_small,
+                    on="datetime",
+                    how="outer",
+                    suffixes=("", "_dup")
+                )
+
+        # 平均を計算
         avg_df = merged_df.copy()
         for col in value_cols:
             avg_cols = [c for c in merged_df.columns if c.startswith(col)]
             avg_df[col] = merged_df[avg_cols].mean(axis=1)
 
+        # 「30分値」シート：元の構造を保持しつつF〜I列を平均値に差し替え
         base_df = dfs[0].copy()
         base_df["datetime"] = pd.to_datetime(base_df["date"].astype(str) + " " + base_df["time"].astype(str), errors="coerce")
         output_cols = base_df.columns.tolist()
@@ -79,11 +87,13 @@ if uploaded_files:
         )
         final_30min_df = final_30min_df[output_cols]
 
+        # 「サマリー」シート：月別の合計
         summary_df = pd.concat(dfs)
         summary_df["year"] = summary_df["year"].astype(int)
         summary_df["month"] = summary_df["month"].astype(int)
         summary_grouped = summary_df.groupby(["year", "month"])[value_cols].sum().reset_index()
 
+        # Excel出力
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             final_30min_df.to_excel(writer, index=False, sheet_name="30分値")
